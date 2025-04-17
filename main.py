@@ -45,12 +45,12 @@ def write_results():
                 time.sleep(2)
 
 def send_to_telegram():
-    if TELEGRAM_TOKEN and CHAT_ID:
+    if TELEGRAM_TOKEN and CHAT_ID and os.path.exists(OUTPUT_FILE) and os.path.getsize(OUTPUT_FILE) > 0:
         bot = Bot(token=TELEGRAM_TOKEN)
         with open(OUTPUT_FILE, 'rb') as f:
             bot.send_document(chat_id=CHAT_ID, document=f, filename=OUTPUT_FILE)
     else:
-        print('TELEGRAM_TOKEN или CHAT_ID не установлены в окружении.')
+        print('Файл пустой или переменные окружения не установлены.')
 
 if __name__ == '__main__':
     write_results()
